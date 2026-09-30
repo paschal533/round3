@@ -36,44 +36,52 @@ static void fql_add_upper_symmetrized_MxM(uint8_t *pi3, const uint8_t *src)
     }
 }
 
-void qruov_keygen(const SEED_PK seed_pk, const SEED_SK seed_sk, uint8_t pk_p3[P3_SERIALIZED_LEN])
-{
+// Key generation works in one heap block (the VxV matrix P1 alone is 222 KB for
+// 5q7L10). It holds S and S * (public) products; qruov_ws_secure_free wipes it.
+typedef struct {
     uint8_t sdt[QRUOV_M * QRUOV_V * QRUOV_L];
+    uint8_t pi1_coeffs[QRUOV_tau_n1];
     uint8_t pi1[QRUOV_V * QRUOV_V * QRUOV_L];
     uint8_t pi2t[QRUOV_M * QRUOV_V * QRUOV_L];
     uint8_t sdt_pi1[QRUOV_M * QRUOV_V * QRUOV_L];
     uint8_t sdt_pi2[QRUOV_M * QRUOV_M * QRUOV_L];
     uint8_t pi3[QRUOV_M * QRUOV_M * QRUOV_L];
     uint8_t p3_chunk[P3_CHUNK_COEFF_LEN];
+} keygen_workspace;
+
+int qruov_keygen(const SEED_PK seed_pk, const SEED_SK seed_sk, uint8_t pk_p3[P3_SERIALIZED_LEN])
+{
+    keygen_workspace *ws = qruov_ws_alloc(sizeof(*ws));
+    if (ws == NULL) return -1;
     int chunk_eqs = 0;
     size_t p3_offset = 0;
-    prepare_sdt_from_seed(sdt, seed_sk);
+    prepare_sdt_from_seed(ws->sdt, seed_sk);
     prg pk_prg;
     prg_init(&pk_prg, seed_pk);
     for (int eq = 0; eq < QRUOV_m; eq++) {
-        prepare_pi1_from_prg(pi1, &pk_prg, (uint16_t)eq);
-        prepare_pi2t_from_prg(pi2t, &pk_prg, (uint16_t)eq);
-        fql_mul_MxV_VxVt(sdt_pi1, sdt, pi1);
+        prepare_pi1_coeffs_from_prg(ws->pi1_coeffs, &pk_prg, (uint16_t)eq);
+        unpack_upper_to_symm_VxV(ws->pi1, ws->pi1_coeffs);
+        prepare_pi2t_from_prg(ws->pi2t, &pk_prg, (uint16_t)eq);
+        fql_mul_MxV_VxVt(ws->sdt_pi1, ws->sdt, ws->pi1);
         // The lower triangle is intentionally left uninitialized: the helpers
         // below update only the upper triangle, and only that upper triangle is packed.
-        fql_neg_upper_mul_MxV_MxVt(pi3, sdt_pi1, sdt);
-        fql_mul_MxV_MxVt(sdt_pi2, sdt, pi2t);
-        fql_add_upper_symmetrized_MxM(pi3, sdt_pi2);
-        p3_store_upper_MxM(&p3_chunk[chunk_eqs * P3_EQ_COEFF_LEN], pi3);
+        fql_neg_upper_mul_MxV_MxVt(ws->pi3, ws->sdt_pi1, ws->sdt);
+        fql_mul_MxV_MxVt(ws->sdt_pi2, ws->sdt, ws->pi2t);
+        fql_add_upper_symmetrized_MxM(ws->pi3, ws->sdt_pi2);
+        p3_store_upper_MxM(&ws->p3_chunk[chunk_eqs * P3_EQ_COEFF_LEN], ws->pi3);
         chunk_eqs++;
         if (chunk_eqs == P3_CHUNK_EQS) {
-            store_fq(pk_p3 + p3_offset, p3_chunk, P3_CHUNK_COEFF_LEN);
+            store_fq(pk_p3 + p3_offset, ws->p3_chunk, P3_CHUNK_COEFF_LEN);
             p3_offset += BITS2BYTE(QRUOV_q_LOG * P3_CHUNK_COEFF_LEN);
             chunk_eqs = 0;
         }
     }
     if (chunk_eqs > 0) {
-        store_fq(pk_p3 + p3_offset, p3_chunk, (size_t)chunk_eqs * P3_EQ_COEFF_LEN);
+        store_fq(pk_p3 + p3_offset, ws->p3_chunk, (size_t)chunk_eqs * P3_EQ_COEFF_LEN);
     }
     prg_free(&pk_prg);
-    secure_zero(sdt, sizeof(sdt));
-    secure_zero(sdt_pi1, sizeof(sdt_pi1));
-    secure_zero(sdt_pi2, sizeof(sdt_pi2));
+    qruov_ws_secure_free(ws, sizeof(*ws));
+    return 0;
 }
 
 int qruov_sign(const SEED_PK seed_pk, const SEED_SK seed_sk, const SEED_SK seed_y, const SEED_SK seed_r, const SEED_SK seed_sol, const uint8_t msg[], size_t msg_len, SALT sig_r, SIG_S sig_s)

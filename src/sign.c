@@ -12,10 +12,12 @@ int crypto_sign_keypair(unsigned char *pk, unsigned char *sk)
     prepare_seed_pk_from_seed(seed_pk, seed_sk);
     qruov_init();
     memcpy(pk, seed_pk, SEED_PK_LEN);
-    qruov_keygen(seed_pk, seed_sk, pk + SEED_PK_LEN);
-    memcpy(sk, seed_sk, SEED_SK_LEN);
+    int ret = qruov_keygen(seed_pk, seed_sk, pk + SEED_PK_LEN); // fails only if out of memory
+    if (ret == 0) {
+        memcpy(sk, seed_sk, SEED_SK_LEN);
+    }
     secure_zero(seed_sk, sizeof(seed_sk));
-    return 0;
+    return ret;
 }
 
 int crypto_sign(unsigned char *sm, unsigned long long *smlen, const unsigned char *m, unsigned long long mlen, const unsigned char *sk)
