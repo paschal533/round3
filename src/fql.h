@@ -5,6 +5,7 @@
 #include <string.h>
 #include "qruov.h"
 #include "gf.h"
+#include "util.h"
 
 static inline void fql_zero(uint8_t z[QRUOV_L])
 {
@@ -149,6 +150,8 @@ static inline void fql_mul_symVxV_V(uint8_t *dst, const uint8_t *A_upper, const 
             dst[i * QRUOV_L + l] = gf_reduce(c[l]);
         }
     }
+    // acc is P1 * y before reduction, and y is the signer's vinegar.
+    secure_zero(acc, sizeof(acc));
 }
 
 static inline void fql_mul_MxV_V(uint8_t *dst, const uint8_t *A_MxV, const uint8_t *x_V)
