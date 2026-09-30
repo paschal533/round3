@@ -127,4 +127,16 @@
 #define reevaluate_q31_q31L10                QRUOV_NAMESPACE(reevaluate_q31_q31L10)
 #define reevaluate_q7_q7L10                  QRUOV_NAMESPACE(reevaluate_q7_q7L10)
 
+#define evaluate_scalar_q7L10                QRUOV_NAMESPACE(evaluate_scalar_q7L10)
+#define interpolate_scalar_q127L10           QRUOV_NAMESPACE(interpolate_scalar_q127L10)
+#define interpolate_scalar_q127L3            QRUOV_NAMESPACE(interpolate_scalar_q127L3)
+#define interpolate_scalar_q31L10            QRUOV_NAMESPACE(interpolate_scalar_q31L10)
+#define interpolate_scalar_q31L3             QRUOV_NAMESPACE(interpolate_scalar_q31L3)
+#define interpolate_scalar_q7L10             QRUOV_NAMESPACE(interpolate_scalar_q7L10)
+#define reevaluate_scalar_q127L10            QRUOV_NAMESPACE(reevaluate_scalar_q127L10)
+#define reevaluate_scalar_q127L3             QRUOV_NAMESPACE(reevaluate_scalar_q127L3)
+#define reevaluate_scalar_q31L10             QRUOV_NAMESPACE(reevaluate_scalar_q31L10)
+#define reevaluate_scalar_q31L3              QRUOV_NAMESPACE(reevaluate_scalar_q31L3)
+#define reevaluate_scalar_q7L10              QRUOV_NAMESPACE(reevaluate_scalar_q7L10)
+
 #endif
