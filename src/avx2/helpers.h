@@ -20,6 +20,7 @@ void fq_eval_transpose_planes(uint8_t B[], const uint8_t A[], int planeB, int pl
 // upper-triangle compact symmetric input.
 void fql_aos_to_vnni(uint8_t Avnni[], int M, int N, const uint8_t bytes[], int origM, int origN);
 void fql_compact_sym_aos_to_vnni(uint8_t Avnni[], int M, int N, const uint8_t bytes[], int origM);
+void fql_compact_sym_aos_to_vnni_cols(uint8_t slab[], int M, int j0, int nb, const uint8_t bytes[], int origM);
 void fql_aos_to_eval_vnni(uint8_t Avnni[], int M, int N, const uint8_t bytes[], int origM, int origN);
 void fql_compact_sym_aos_to_eval_vnni(uint8_t Avnni[], int M, int N, const uint8_t bytes[], int origM);
 void fql_aos_to_eval_transposed_soa(uint8_t A[], int M, int N, const uint8_t bytes[], int origM, int origN);

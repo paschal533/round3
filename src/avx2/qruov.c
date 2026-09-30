@@ -102,11 +102,14 @@ static void sign_build_system(uint8_t eqn_out[QRUOV_m * QRUOV_m], uint8_t u_out[
 {
     // AVX2-specific sign system construction with the same semantics as
     // qruov_common.c sign_build_system() used by ref/opt.
-    enum { V4 = ROUND_UP4(QRUOV_V) };
+    // P1 is multiplied one P1_SLAB-column slab at a time: its full VNNI form is
+    // L*V4*V4 bytes (231 KB for 5q7L10), on top of the packed coefficients.
+    enum { V4 = ROUND_UP4(QRUOV_V), P1_SLAB = 8 };
+    enum { PI_COEFFS_LEN = QRUOV_tau_n1 > QRUOV_tau_n2 ? QRUOV_tau_n1 : QRUOV_tau_n2 };
     uint8_t y_soa[QRUOV_L * V4];
     uint8_t y_perm_soa[QRUOV_L * V4];
     uint8_t sdvnni[QRUOV_L * V4 * QRUOV_M];
-    uint8_t p1vnni[QRUOV_L * V4 * V4] = {0};
+    uint8_t p1slab[QRUOV_L * V4 * P1_SLAB];
     uint8_t p2vnni[QRUOV_L * V4 * QRUOV_M];
     uint8_t yT_p1[QRUOV_L * V4] = {0};
     uint8_t yT_p1_sd[QRUOV_L * QRUOV_M];
@@ -122,15 +125,21 @@ static void sign_build_system(uint8_t eqn_out[QRUOV_m * QRUOV_m], uint8_t u_out[
     prg pk_prg;
     prg_init(&pk_prg, seed_pk);
     for (int eq = 0; eq < QRUOV_m; eq++) {
-        uint8_t pi1_coeffs[QRUOV_tau_n1];
-        uint8_t pi2_coeffs[QRUOV_tau_n2];
-        prepare_pi1_coeffs_from_prg(pi1_coeffs, &pk_prg, (uint16_t)eq);
-        fql_compact_sym_aos_to_vnni(p1vnni, V4, V4, pi1_coeffs, QRUOV_V);
-        prepare_pi2_coeffs_from_prg(pi2_coeffs, &pk_prg, (uint16_t)eq);
-        fql_aos_to_vnni(p2vnni, V4, QRUOV_M, pi2_coeffs, QRUOV_V, QRUOV_M);
-
-        fql_matmul_vnni_fast(yT_p1, y_soa, p1vnni, 1, V4, V4);
+        // Holds the packed P1 coefficients, then (once yT_p1 is done) those of P2.
+        uint8_t pi_coeffs[PI_COEFFS_LEN];
+        prepare_pi1_coeffs_from_prg(pi_coeffs, &pk_prg, (uint16_t)eq);
+        for (int j = 0; j < V4; j += P1_SLAB) {
+            // A short last slab is shifted left to overlap the previous one; the
+            // overlapping columns are recomputed with the same values.
+            const int j0 = j + P1_SLAB <= V4 ? j : V4 - P1_SLAB;
+            fql_compact_sym_aos_to_vnni_cols(p1slab, V4, j0, P1_SLAB, pi_coeffs, QRUOV_V);
+            matmulfql_vnni_1x8(&yT_p1[j0], y_soa, p1slab, V4,
+                               P1_SLAB, V4, P1_SLAB, V4, V4, V4 * P1_SLAB);
+        }
         fql_matmul_vnni_fast(yT_p1_sd, yT_p1, sdvnni, 1, QRUOV_M, V4);
+
+        prepare_pi2_coeffs_from_prg(pi_coeffs, &pk_prg, (uint16_t)eq);
+        fql_aos_to_vnni(p2vnni, V4, QRUOV_M, pi_coeffs, QRUOV_V, QRUOV_M);
         fql_matmul_vnni_fast(yT_p2, y_soa, p2vnni, 1, QRUOV_M, V4);
 
         for (int l = 0; l < QRUOV_L; l++) {

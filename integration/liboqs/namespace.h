@@ -93,6 +93,7 @@
 #define fql_aos_to_vnni                      QRUOV_NAMESPACE(fql_aos_to_vnni)
 #define fql_compact_sym_aos_to_eval_vnni     QRUOV_NAMESPACE(fql_compact_sym_aos_to_eval_vnni)
 #define fql_compact_sym_aos_to_vnni          QRUOV_NAMESPACE(fql_compact_sym_aos_to_vnni)
+#define fql_compact_sym_aos_to_vnni_cols     QRUOV_NAMESPACE(fql_compact_sym_aos_to_vnni_cols)
 #define fql_matmul_eval_vnni_fast            QRUOV_NAMESPACE(fql_matmul_eval_vnni_fast)
 #define fql_matmul_vnni_fast                 QRUOV_NAMESPACE(fql_matmul_vnni_fast)
 #define fql_soa_to_aos_permute               QRUOV_NAMESPACE(fql_soa_to_aos_permute)
