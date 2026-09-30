@@ -26,7 +26,6 @@ implementations:
   signature_verify: qruov_3q127L10_aes_ref_crypto_sign_verify
   sources: integration/liboqs/signature.c
   memory_optimized: false
-  supported_platforms: []
   common_dep: qruov_common qruov_ref
 - name: opt
   version: Round 3
