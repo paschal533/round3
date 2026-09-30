@@ -42,6 +42,7 @@ static void fql_aos_to_eval(uint8_t *dst_eval, const uint8_t *src_aos, int rows,
     uint8_t src_soa[QRUOV_L * plane];
     fql_aos_to_soa(src_soa, src_aos, rows, cols);
     evaluate(dst_eval, plane, src_soa, plane, plane);
+    secure_zero(src_soa, sizeof(src_soa));
 }
 
 // Transpose plane-major matrix [planes][rows][cols] -> [planes][cols][rows].
@@ -134,6 +135,11 @@ void qruov_keygen(const SEED_PK seed_pk, const SEED_SK seed_sk, uint8_t pk_p3[P3
 {
     uint8_t sdt[QRUOV_M * QRUOV_V * QRUOV_L];
     uint8_t sdt_eval[QRUOV_LL * QRUOV_M * QRUOV_V];
+    // S * (public) products: secret-derived, wiped below.
+    uint8_t sdt_pi1_eval[QRUOV_LL * QRUOV_M * QRUOV_V];
+    uint8_t sdt_pi1_reval[QRUOV_LL * QRUOV_M * QRUOV_V];
+    uint8_t sdt_pi2_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
+    uint8_t pi2t_sd_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
     uint8_t p3_chunk[P3_CHUNK_COEFF_LEN];
     int chunk_eqs = 0;
     size_t p3_offset = 0;
@@ -146,10 +152,6 @@ void qruov_keygen(const SEED_PK seed_pk, const SEED_SK seed_sk, uint8_t pk_p3[P3
         uint8_t pi2t[QRUOV_M * QRUOV_V * QRUOV_L];
         uint8_t pi1_eval[QRUOV_LL * QRUOV_V * QRUOV_V];
         uint8_t pi2t_eval[QRUOV_LL * QRUOV_M * QRUOV_V];
-        uint8_t sdt_pi1_eval[QRUOV_LL * QRUOV_M * QRUOV_V];
-        uint8_t sdt_pi1_reval[QRUOV_LL * QRUOV_M * QRUOV_V];
-        uint8_t sdt_pi2_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
-        uint8_t pi2t_sd_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
         uint8_t pi3_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
         uint8_t pi3_soa[QRUOV_L * QRUOV_M * QRUOV_M];
         uint8_t pi3[QRUOV_M * QRUOV_M * QRUOV_L];
@@ -183,6 +185,10 @@ void qruov_keygen(const SEED_PK seed_pk, const SEED_SK seed_sk, uint8_t pk_p3[P3
     prg_free(&pk_prg);
     secure_zero(sdt, sizeof(sdt));
     secure_zero(sdt_eval, sizeof(sdt_eval));
+    secure_zero(sdt_pi1_eval, sizeof(sdt_pi1_eval));
+    secure_zero(sdt_pi1_reval, sizeof(sdt_pi1_reval));
+    secure_zero(sdt_pi2_eval, sizeof(sdt_pi2_eval));
+    secure_zero(pi2t_sd_eval, sizeof(pi2t_sd_eval));
 }
 
 int qruov_sign(const SEED_PK seed_pk, const SEED_SK seed_sk, const SEED_SK seed_y, const SEED_SK seed_r, const SEED_SK seed_sol, const uint8_t msg[], size_t msg_len, SALT sig_r, SIG_S sig_s)

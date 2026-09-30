@@ -7,6 +7,7 @@
 #include "qruov_simd.h"
 #include "emi_transform.h"
 #include "fastop.h"
+#include "util.h"
 
 void fql_soa_to_aos_permute(uint8_t dst_aos[], const uint8_t src_soa[], int items, int plane)
 {
@@ -429,6 +430,7 @@ void fql_aos_to_eval_vnni(uint8_t Avnni[], int M, int N, const uint8_t bytes[], 
     if (N != origN) memset(tmp, 0, sizeof(tmp));
     fql_aos_to_vnni(tmp, M, N, bytes, origM, origN);
     evaluate(Avnni, M * N, tmp, M * N, M * N);
+    secure_zero(tmp, sizeof(tmp)); // keygen passes the secret S here
 }
 
 void fql_aos_to_eval_transposed_soa(uint8_t A[], int M, int N, const uint8_t bytes[], int origM, int origN)
@@ -438,4 +440,5 @@ void fql_aos_to_eval_transposed_soa(uint8_t A[], int M, int N, const uint8_t byt
     memset(tmp, 0, sizeof(tmp));
     fql_aos_to_transposed_soa(tmp, M, N, bytes, origM, origN);
     evaluate(A, M * N, tmp, M * N, M * N);
+    secure_zero(tmp, sizeof(tmp)); // keygen passes the secret S here
 }
