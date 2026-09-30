@@ -128,10 +128,13 @@ static inline void store_row_16_hadd_epi16(uint8_t *out, __m256i lo, __m256i hi)
     } while (0)
 
 #if QRUOV_L == 3
-static void matmulfql3_symmetric_upper_impl(uint8_t *output_soa, const uint8_t *vector_soa, int size)
+static void matmulfql3_symmetric_upper_impl(uint8_t *output_soa, const uint8_t *vector_soa, int size,
+                                             int row0, int rows)
 {
     assert(size % 16 == 0);
-    for (int i = 0; i < size; i++) {
+    assert(row0 >= 0 && rows >= 0 && row0 + rows <= size);
+    const int plane = rows * size;
+    for (int i = row0; i < row0 + rows; i++) {
         __m256i a0 = _mm256_set1_epi16(vector_soa[0 * size + i]);
         __m256i a1 = _mm256_set1_epi16(vector_soa[1 * size + i]);
         __m256i a2 = _mm256_set1_epi16(vector_soa[2 * size + i]);
@@ -167,20 +170,23 @@ static void matmulfql3_symmetric_upper_impl(uint8_t *output_soa, const uint8_t *
             c1 = _mm256_add_epi16(c1, c3);
             c1 = _mm256_add_epi16(c1, c4);
             c2 = _mm256_add_epi16(c2, c4);
-            _mm_storeu_si128((__m128i *)&output_soa[0 * size * size + i * size + j],
+            _mm_storeu_si128((__m128i *)&output_soa[0 * plane + (i - row0) * size + j],
                              ymm_cvtusepi16_epi8(ymm_modq_epi15(c0)));
-            _mm_storeu_si128((__m128i *)&output_soa[1 * size * size + i * size + j],
+            _mm_storeu_si128((__m128i *)&output_soa[1 * plane + (i - row0) * size + j],
                              ymm_cvtusepi16_epi8(ymm_modq_epi15(c1)));
-            _mm_storeu_si128((__m128i *)&output_soa[2 * size * size + i * size + j],
+            _mm_storeu_si128((__m128i *)&output_soa[2 * plane + (i - row0) * size + j],
                              ymm_cvtusepi16_epi8(ymm_modq_epi15(c2)));
         }
     }
 }
 #elif QRUOV_L == 10
-static void matmulfql10_symmetric_upper_impl(uint8_t *output_soa, const uint8_t *vector_soa, int size)
+static void matmulfql10_symmetric_upper_impl(uint8_t *output_soa, const uint8_t *vector_soa, int size,
+                                             int row0, int rows)
 {
     assert(size % 16 == 0);
-    for (int i = 0; i < size; i++) {
+    assert(row0 >= 0 && rows >= 0 && row0 + rows <= size);
+    const int plane = rows * size;
+    for (int i = row0; i < row0 + rows; i++) {
         __m256i a[QRUOV_L];
         for (int l = 0; l < QRUOV_L; l++) {
             a[l] = _mm256_set1_epi16(vector_soa[l * size + i]);
@@ -218,7 +224,7 @@ static void matmulfql10_symmetric_upper_impl(uint8_t *output_soa, const uint8_t 
                 }
             }
             for (int l = 0; l < QRUOV_L; l++) {
-                _mm_storeu_si128((__m128i *)&output_soa[l * size * size + i * size + j],
+                _mm_storeu_si128((__m128i *)&output_soa[l * plane + (i - row0) * size + j],
                                  ymm_cvtusepi16_epi8(ymm_modq_epi15(c[l])));
             }
         }
@@ -228,12 +234,12 @@ static void matmulfql10_symmetric_upper_impl(uint8_t *output_soa, const uint8_t 
 #error "Unsupported QRUOV_L"
 #endif
 
-void matmulfql_symmetric_upper(uint8_t *output_soa, const uint8_t *vector_soa, int size)
+void matmulfql_symmetric_upper(uint8_t *output_soa, const uint8_t *vector_soa, int size, int row0, int rows)
 {
 #if QRUOV_L == 3
-    matmulfql3_symmetric_upper_impl(output_soa, vector_soa, size);
+    matmulfql3_symmetric_upper_impl(output_soa, vector_soa, size, row0, rows);
 #elif QRUOV_L == 10
-    matmulfql10_symmetric_upper_impl(output_soa, vector_soa, size);
+    matmulfql10_symmetric_upper_impl(output_soa, vector_soa, size, row0, rows);
 #else
 #error "Unsupported QRUOV_L"
 #endif

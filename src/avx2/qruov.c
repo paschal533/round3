@@ -74,27 +74,22 @@ static void fq_minus_a_plus_b_plus_c(uint8_t *dst, const uint8_t *a, const uint8
     }
 }
 
-static void sigmap_sym_features(uint8_t *dst, const uint8_t *products_soa,
-                                int base, int len, int stride)
+// Writes the signature-map features of row r of the products v_r * v_j
+// (row_soa points at column 0 of that row, planes are plane bytes apart):
+// rows r < V feed s11 (V x V, symmetric) and s12 (V x M); rows V <= r < N feed s22.
+static void sigmap_row_features(uint8_t *s11, uint8_t *s12, uint8_t *s22,
+                                const uint8_t *row_soa, int plane, int r)
 {
-    for (int i = 0; i < len; i++) {
-        int row = base + i;
-        fql_soa_to_aos_permute(&dst[SYMM_COMPACT_INDEX(i, i, len) * QRUOV_L],
-                               &products_soa[row * stride + row], 1, stride * stride);
-        fql_soa_to_aos_permute_double(&dst[SYMM_COMPACT_INDEX(i, i + 1, len) * QRUOV_L],
-                                      &products_soa[row * stride + row + 1], len - i - 1,
-                                      stride * stride);
-    }
-}
-
-static void sigmap_rect_features(uint8_t *dst, const uint8_t *products_soa,
-                                 int row_base, int rows, int col_base, int cols,
-                                 int stride)
-{
-    for (int i = 0; i < rows; i++) {
-        fql_soa_to_aos_permute(&dst[i * cols * QRUOV_L],
-                               &products_soa[(row_base + i) * stride + col_base],
-                               cols, stride * stride);
+    if (r < QRUOV_V) {
+        fql_soa_to_aos_permute(&s11[SYMM_COMPACT_INDEX(r, r, QRUOV_V) * QRUOV_L], &row_soa[r], 1, plane);
+        fql_soa_to_aos_permute_double(&s11[SYMM_COMPACT_INDEX(r, r + 1, QRUOV_V) * QRUOV_L],
+                                      &row_soa[r + 1], QRUOV_V - r - 1, plane);
+        fql_soa_to_aos_permute(&s12[r * QRUOV_M * QRUOV_L], &row_soa[QRUOV_V], QRUOV_M, plane);
+    } else {
+        const int i = r - QRUOV_V;
+        fql_soa_to_aos_permute(&s22[SYMM_COMPACT_INDEX(i, i, QRUOV_M) * QRUOV_L], &row_soa[r], 1, plane);
+        fql_soa_to_aos_permute_double(&s22[SYMM_COMPACT_INDEX(i, i + 1, QRUOV_M) * QRUOV_L],
+                                      &row_soa[r + 1], QRUOV_M - i - 1, plane);
     }
 }
 
@@ -253,9 +248,11 @@ int qruov_sign(const SEED_PK seed_pk, const SEED_SK seed_sk, const SEED_SK seed_
 int qruov_verify(const SEED_PK seed_pk, const uint8_t pk_p3[P3_SERIALIZED_LEN], const uint8_t msg[], size_t msg_len, const SALT sig_r, const SIG_S sig_s)
 {
     uint8_t t[QRUOV_m];
-    enum { N16 = ROUND_UP16(QRUOV_N) };
+    // The products s_i * s_j are formed SS_ROWS rows at a time; all N16 rows at
+    // once take L*N16*N16 bytes (310 KB for 5q7L10).
+    enum { N16 = ROUND_UP16(QRUOV_N), SS_ROWS = 16 };
     uint8_t s_soa[QRUOV_L * N16];
-    uint8_t ss_soa[QRUOV_L * N16 * N16];
+    uint8_t ss_soa[QRUOV_L * SS_ROWS * N16];
     uint8_t s11[QRUOV_n1 + 32];
     uint8_t s12[QRUOV_n2 + 32];
     uint8_t s22[P3_EQ_COEFF_LEN];
@@ -265,10 +262,12 @@ int qruov_verify(const SEED_PK seed_pk, const uint8_t pk_p3[P3_SERIALIZED_LEN], 
     compute_mu_and_hash(t, seed_pk, msg, msg_len, sig_r);
     memset(s_soa, 0, sizeof(s_soa));
     fql_aos_to_soa(s_soa, sig_s, QRUOV_N, N16);
-    matmulfql_symmetric_upper(ss_soa, s_soa, N16);
-    sigmap_sym_features(s11, ss_soa, 0, QRUOV_V, N16);
-    sigmap_rect_features(s12, ss_soa, 0, QRUOV_V, QRUOV_V, QRUOV_M, N16);
-    sigmap_sym_features(s22, ss_soa, QRUOV_V, QRUOV_M, N16);
+    for (int row0 = 0; row0 < QRUOV_N; row0 += SS_ROWS) { // N16 - row0 >= SS_ROWS here
+        matmulfql_symmetric_upper(ss_soa, s_soa, N16, row0, SS_ROWS);
+        for (int r = row0; r < row0 + SS_ROWS && r < QRUOV_N; r++) {
+            sigmap_row_features(s11, s12, s22, &ss_soa[(r - row0) * N16], SS_ROWS * N16, r);
+        }
+    }
     memset(&s11[QRUOV_n1], 0, 32);
     memset(&s12[QRUOV_n2], 0, 32);
     prg_init(&pk_prg, seed_pk);
