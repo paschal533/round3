@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
+#if defined(QRUOV_PRIM_OQS)
+#include <oqs/common.h>
+#endif
 
 #define ROUND_UP4(x)  (((x) + 3) & ~3)
 #define ROUND_UP16(x) (((x) + 15) & ~15)
@@ -35,6 +39,29 @@ static inline void secure_zero(void *ptr, size_t len)
 #else
     static void *(*const volatile memset_ptr)(void *, int, size_t) = memset;
     memset_ptr(ptr, 0, len);
+#endif
+}
+
+// Heap workspace for key generation (sign and verify stay allocation-free).
+// Under QRUOV_PRIM_OQS these map to liboqs' allocator, as prim.c does.
+static inline void *qruov_ws_alloc(size_t len)
+{
+#if defined(QRUOV_PRIM_OQS)
+    return OQS_MEM_malloc(len);
+#else
+    return malloc(len); // IGNORE memory-check
+#endif
+}
+
+// Wipes and frees a workspace obtained from qruov_ws_alloc; NULL is ignored.
+static inline void qruov_ws_secure_free(void *ptr, size_t len)
+{
+#if defined(QRUOV_PRIM_OQS)
+    OQS_MEM_secure_free(ptr, len);
+#else
+    if (ptr == NULL) return;
+    secure_zero(ptr, len);
+    free(ptr); // IGNORE memory-check
 #endif
 }
 

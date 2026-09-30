@@ -494,33 +494,31 @@ void fql_matmul_eval_vnni_fast(uint8_t C[], const uint8_t A[], const uint8_t Bvn
     }
 }
 
-void fql_compact_sym_aos_to_eval_vnni(uint8_t Avnni[], int M, int N, const uint8_t bytes[], int origM)
+// The *_to_eval_* helpers below convert into tmp (QRUOV_L * M * N bytes, supplied by
+// the caller, so they need no variable-length arrays) and then evaluate. The only
+// caller is key generation, whose workspace holding tmp is wiped when freed.
+void fql_compact_sym_aos_to_eval_vnni(uint8_t Avnni[], uint8_t tmp[], int M, int N, const uint8_t bytes[], int origM)
 {
     assert(M % 4 == 0);
     assert(M >= origM && N >= origM);
-    uint8_t tmp[QRUOV_L * M * N];
-    memset(tmp, 0, sizeof(tmp));
+    memset(tmp, 0, (size_t)QRUOV_L * M * N);
     fql_compact_sym_aos_to_vnni(tmp, M, N, bytes, origM);
     evaluate(Avnni, M * N, tmp, M * N, M * N);
 }
 
-void fql_aos_to_eval_vnni(uint8_t Avnni[], int M, int N, const uint8_t bytes[], int origM, int origN)
+void fql_aos_to_eval_vnni(uint8_t Avnni[], uint8_t tmp[], int M, int N, const uint8_t bytes[], int origM, int origN)
 {
     assert(M % 4 == 0);
     assert(M >= origM && N >= origN);
-    uint8_t tmp[QRUOV_L * M * N];
-    if (N != origN) memset(tmp, 0, sizeof(tmp));
+    if (N != origN) memset(tmp, 0, (size_t)QRUOV_L * M * N);
     fql_aos_to_vnni(tmp, M, N, bytes, origM, origN);
     evaluate(Avnni, M * N, tmp, M * N, M * N);
-    secure_zero(tmp, sizeof(tmp)); // keygen passes the secret S here
 }
 
-void fql_aos_to_eval_transposed_soa(uint8_t A[], int M, int N, const uint8_t bytes[], int origM, int origN)
+void fql_aos_to_eval_transposed_soa(uint8_t A[], uint8_t tmp[], int M, int N, const uint8_t bytes[], int origM, int origN)
 {
     assert(M >= origN && N >= origM);
-    uint8_t tmp[QRUOV_L * M * N];
-    memset(tmp, 0, sizeof(tmp));
+    memset(tmp, 0, (size_t)QRUOV_L * M * N);
     fql_aos_to_transposed_soa(tmp, M, N, bytes, origM, origN);
     evaluate(A, M * N, tmp, M * N, M * N);
-    secure_zero(tmp, sizeof(tmp)); // keygen passes the secret S here
 }

@@ -173,71 +173,72 @@ static void sign_build_system(uint8_t eqn_out[QRUOV_m * QRUOV_m], uint8_t u_out[
     secure_zero(y_soa, sizeof(y_soa));
 }
 
-void qruov_keygen(const SEED_PK seed_pk, const SEED_SK seed_sk, uint8_t pk_p3[P3_SERIALIZED_LEN])
-{
-    enum { V4 = ROUND_UP4(QRUOV_V) };
+// Key generation works in one heap block (1.3 MB of buffers for 5q7L10). It holds
+// S and S * (public) products; qruov_ws_secure_free wipes all of it.
+typedef struct {
     uint8_t sdbuf[QRUOV_tau_n2];
-    prepare_sd_from_seed(sdbuf, seed_sk);
-
-    uint8_t sdvnni[QRUOV_LL * V4 * QRUOV_M];
-    uint8_t sdt_eval[QRUOV_LL * QRUOV_M * V4];
-    uint8_t sdt_p1_eval[QRUOV_LL * QRUOV_M * V4];
-    uint8_t sdt_p1_reval[QRUOV_LL * QRUOV_M * V4];
+    uint8_t sdvnni[QRUOV_LL * ROUND_UP4(QRUOV_V) * QRUOV_M];
+    uint8_t sdt_eval[QRUOV_LL * QRUOV_M * ROUND_UP4(QRUOV_V)];
+    uint8_t sdt_p1_eval[QRUOV_LL * QRUOV_M * ROUND_UP4(QRUOV_V)];
+    uint8_t sdt_p1_reval[QRUOV_LL * QRUOV_M * ROUND_UP4(QRUOV_V)];
     uint8_t p2t_sd_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
     uint8_t sdt_p2_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
-    uint8_t p1vnni[QRUOV_LL * V4 * V4];
-    uint8_t p2vnni[QRUOV_LL * V4 * QRUOV_M];
+    uint8_t p1vnni[QRUOV_LL * ROUND_UP4(QRUOV_V) * ROUND_UP4(QRUOV_V)];
+    uint8_t p2vnni[QRUOV_LL * ROUND_UP4(QRUOV_V) * QRUOV_M];
+    uint8_t pi1_coeffs[QRUOV_tau_n1];
+    uint8_t pi2_coeffs[QRUOV_tau_n2];
+    uint8_t pi3_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
+    uint8_t pi3_soa[QRUOV_L * QRUOV_M * QRUOV_M];
+    uint8_t pi3[QRUOV_M * QRUOV_M * QRUOV_L];
+    uint8_t eval_tmp[QRUOV_L * ROUND_UP4(QRUOV_V) * ROUND_UP4(QRUOV_V)]; // largest *_to_eval_* input
     uint8_t p3_chunk[P3_CHUNK_COEFF_LEN];
+} keygen_workspace;
+
+int qruov_keygen(const SEED_PK seed_pk, const SEED_SK seed_sk, uint8_t pk_p3[P3_SERIALIZED_LEN])
+{
+    enum { V4 = ROUND_UP4(QRUOV_V) };
+    keygen_workspace *ws = qruov_ws_alloc(sizeof(*ws));
+    if (ws == NULL) return -1;
     int chunk_eqs = 0;
     size_t p3_offset = 0;
 
-    fql_aos_to_eval_vnni(sdvnni, V4, QRUOV_M, sdbuf, QRUOV_V, QRUOV_M);
-    fql_aos_to_eval_transposed_soa(sdt_eval, QRUOV_M, V4, sdbuf, QRUOV_V, QRUOV_M);
+    prepare_sd_from_seed(ws->sdbuf, seed_sk);
+    fql_aos_to_eval_vnni(ws->sdvnni, ws->eval_tmp, V4, QRUOV_M, ws->sdbuf, QRUOV_V, QRUOV_M);
+    fql_aos_to_eval_transposed_soa(ws->sdt_eval, ws->eval_tmp, QRUOV_M, V4, ws->sdbuf, QRUOV_V, QRUOV_M);
 
     prg pk_prg;
     prg_init(&pk_prg, seed_pk);
     for (int eq = 0; eq < QRUOV_m; eq++) {
-        uint8_t pi1_coeffs[QRUOV_tau_n1];
-        uint8_t pi2_coeffs[QRUOV_tau_n2];
-        uint8_t pi3_eval[QRUOV_LL * QRUOV_M * QRUOV_M];
-        uint8_t pi3_soa[QRUOV_L * QRUOV_M * QRUOV_M];
-        uint8_t pi3[QRUOV_M * QRUOV_M * QRUOV_L];
+        prepare_pi1_coeffs_from_prg(ws->pi1_coeffs, &pk_prg, (uint16_t)eq);
+        fql_compact_sym_aos_to_eval_vnni(ws->p1vnni, ws->eval_tmp, V4, V4, ws->pi1_coeffs, QRUOV_V);
 
-        prepare_pi1_coeffs_from_prg(pi1_coeffs, &pk_prg, (uint16_t)eq);
-        fql_compact_sym_aos_to_eval_vnni(p1vnni, V4, V4, pi1_coeffs, QRUOV_V);
+        prepare_pi2_coeffs_from_prg(ws->pi2_coeffs, &pk_prg, (uint16_t)eq);
+        fql_aos_to_eval_vnni(ws->p2vnni, ws->eval_tmp, V4, QRUOV_M, ws->pi2_coeffs, QRUOV_V, QRUOV_M);
 
-        prepare_pi2_coeffs_from_prg(pi2_coeffs, &pk_prg, (uint16_t)eq);
-        fql_aos_to_eval_vnni(p2vnni, V4, QRUOV_M, pi2_coeffs, QRUOV_V, QRUOV_M);
-
-        fql_matmul_eval_vnni_fast(sdt_p2_eval, sdt_eval, p2vnni, QRUOV_M, QRUOV_M, V4);
-        fq_eval_transpose_planes(p2t_sd_eval, sdt_p2_eval, QRUOV_M * QRUOV_M, QRUOV_M * QRUOV_M,
+        fql_matmul_eval_vnni_fast(ws->sdt_p2_eval, ws->sdt_eval, ws->p2vnni, QRUOV_M, QRUOV_M, V4);
+        fq_eval_transpose_planes(ws->p2t_sd_eval, ws->sdt_p2_eval, QRUOV_M * QRUOV_M, QRUOV_M * QRUOV_M,
                                  QRUOV_M, QRUOV_M, QRUOV_M, QRUOV_M);
-        fql_matmul_eval_vnni_fast(sdt_p1_eval, sdt_eval, p1vnni, QRUOV_M, V4, V4);
-        reevaluate(sdt_p1_reval, QRUOV_M * V4, sdt_p1_eval, QRUOV_M * V4, QRUOV_M * V4);
-        fql_matmul_eval_vnni_fast(pi3_eval, sdt_p1_reval, sdvnni, QRUOV_M, QRUOV_M, V4);
-        fq_minus_a_plus_b_plus_c(pi3_eval, pi3_eval, p2t_sd_eval, sdt_p2_eval, sizeof(pi3_eval));
+        fql_matmul_eval_vnni_fast(ws->sdt_p1_eval, ws->sdt_eval, ws->p1vnni, QRUOV_M, V4, V4);
+        reevaluate(ws->sdt_p1_reval, QRUOV_M * V4, ws->sdt_p1_eval, QRUOV_M * V4, QRUOV_M * V4);
+        fql_matmul_eval_vnni_fast(ws->pi3_eval, ws->sdt_p1_reval, ws->sdvnni, QRUOV_M, QRUOV_M, V4);
+        fq_minus_a_plus_b_plus_c(ws->pi3_eval, ws->pi3_eval, ws->p2t_sd_eval, ws->sdt_p2_eval, sizeof(ws->pi3_eval));
 
-        interpolate(pi3_soa, QRUOV_M * QRUOV_M, pi3_eval, QRUOV_M * QRUOV_M, QRUOV_M * QRUOV_M);
-        fql_soa_to_aos(pi3, pi3_soa, QRUOV_M, QRUOV_M);
-        p3_store_upper_MxM(&p3_chunk[chunk_eqs * P3_EQ_COEFF_LEN], pi3);
+        interpolate(ws->pi3_soa, QRUOV_M * QRUOV_M, ws->pi3_eval, QRUOV_M * QRUOV_M, QRUOV_M * QRUOV_M);
+        fql_soa_to_aos(ws->pi3, ws->pi3_soa, QRUOV_M, QRUOV_M);
+        p3_store_upper_MxM(&ws->p3_chunk[chunk_eqs * P3_EQ_COEFF_LEN], ws->pi3);
         chunk_eqs++;
         if (chunk_eqs == P3_CHUNK_EQS) {
-            store_fq(pk_p3 + p3_offset, p3_chunk, P3_CHUNK_COEFF_LEN);
+            store_fq(pk_p3 + p3_offset, ws->p3_chunk, P3_CHUNK_COEFF_LEN);
             p3_offset += BITS2BYTE(QRUOV_q_LOG * P3_CHUNK_COEFF_LEN);
             chunk_eqs = 0;
         }
     }
     if (chunk_eqs > 0) {
-        store_fq(pk_p3 + p3_offset, p3_chunk, (size_t)chunk_eqs * P3_EQ_COEFF_LEN);
+        store_fq(pk_p3 + p3_offset, ws->p3_chunk, (size_t)chunk_eqs * P3_EQ_COEFF_LEN);
     }
     prg_free(&pk_prg);
-    secure_zero(sdt_p2_eval, sizeof(sdt_p2_eval));
-    secure_zero(p2t_sd_eval, sizeof(p2t_sd_eval));
-    secure_zero(sdt_p1_reval, sizeof(sdt_p1_reval));
-    secure_zero(sdt_p1_eval, sizeof(sdt_p1_eval));
-    secure_zero(sdt_eval, sizeof(sdt_eval));
-    secure_zero(sdvnni, sizeof(sdvnni));
-    secure_zero(sdbuf, sizeof(sdbuf));
+    qruov_ws_secure_free(ws, sizeof(*ws));
+    return 0;
 }
 
 int qruov_sign(const SEED_PK seed_pk, const SEED_SK seed_sk, const SEED_SK seed_y, const SEED_SK seed_r, const SEED_SK seed_sol, const uint8_t msg[], size_t msg_len, SALT sig_r, SIG_S sig_s)
