@@ -324,6 +324,88 @@ void fql_compact_sym_aos_to_vnni(uint8_t Avnni[], int M, int N, const uint8_t by
 #error "unknown QRUOV_L"
 #endif
 
+// Loads the 4x4 tile of the packed symmetric matrix whose rows start at r[0..3]
+// (4 consecutive packed entries per row) and transposes it the same way as
+// fql_compact_sym_aos_to_vnni does, one vector per coefficient plane.
+static inline void sym_tile_load(__m128i y[QRUOV_L], const uint8_t *const r[4])
+{
+#if QRUOV_L == 3
+    deint3_transpose(_mm_loadu_si128((const __m128i *)r[0]), _mm_loadu_si128((const __m128i *)r[1]),
+                     _mm_loadu_si128((const __m128i *)r[2]), _mm_loadu_si128((const __m128i *)r[3]),
+                     &y[0], &y[1], &y[2]);
+#elif QRUOV_L == 10
+    uint8_t buffer[160], buffer2[160];
+    for (int t = 0; t < 4; t++) {
+        memcpy(&buffer[t * 4 * QRUOV_L], r[t], QRUOV_L * 4);
+    }
+    transpose16x10(buffer2, buffer);
+    for (int l = 0; l < QRUOV_L; l++) {
+        y[l] = _mm_loadu_si128((const __m128i *)&buffer2[l * 16]);
+    }
+#else
+#error "unknown QRUOV_L"
+#endif
+}
+
+// Writes columns [j0, j0 + nb) of the VNNI form of a symmetric origM x origM matrix
+// given as its packed upper triangle, i.e. the slab fql_compact_sym_aos_to_vnni(A, M, N, ...)
+// would put in those columns, laid out as its own [L][M/4][nb][4] matrix. Padding rows and
+// columns (index >= origM) are zero. Lets callers multiply by the matrix a slab at a time.
+void fql_compact_sym_aos_to_vnni_cols(uint8_t slab[], int M, int j0, int nb, const uint8_t bytes[], int origM)
+{
+    assert(M % 4 == 0 && j0 % 4 == 0 && nb % 4 == 0);
+    assert(M >= origM);
+    const __m128i INTL4 = _mm_setr_epi8(0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15);
+    const __m128i SYMM = _mm_setr_epi8(0, 1, 2, 3, 1, 4, 5, 6, 2, 5, 8, 9, 3, 6, 9, 12);
+    const int plane = M * nb;
+    const int full = origM / 4; // blocks of four rows (columns) that lie entirely inside origM
+    for (int cb = j0 / 4; cb < (j0 + nb) / 4; cb++) {
+        uint8_t *col = &slab[(cb * 4 - j0) * 4];
+        for (int rb = 0; rb < M / 4; rb++) {
+            uint8_t *dst = &col[rb * nb * 4];
+            if (rb < full && cb < full) {
+                const int i = 4 * (rb < cb ? rb : cb);
+                const int j = 4 * (rb < cb ? cb : rb);
+                const int stride = origM - i;
+                const uint8_t *input = &bytes[SYMM_COMPACT_INDEX(i, j, origM) * QRUOV_L];
+                const uint8_t *r[4];
+                __m128i y[QRUOV_L];
+                r[0] = input;
+                if (i == j) {
+                    r[1] = &input[(1 * stride) * QRUOV_L];
+                    r[2] = &input[(2 * stride - 1) * QRUOV_L];
+                    r[3] = &input[(3 * stride - 3) * QRUOV_L];
+                } else {
+                    r[1] = &input[(1 * stride - 1) * QRUOV_L];
+                    r[2] = &input[(2 * stride - 3) * QRUOV_L];
+                    r[3] = &input[(3 * stride - 6) * QRUOV_L];
+                }
+                sym_tile_load(y, r);
+                for (int l = 0; l < QRUOV_L; l++) {
+                    __m128i v = y[l];
+                    if (i == j) v = _mm_shuffle_epi8(v, SYMM);
+                    else if (rb < cb) v = _mm_shuffle_epi8(v, INTL4);
+                    _mm_storeu_si128((__m128i *)&dst[l * plane], v);
+                }
+                continue;
+            }
+            for (int r = 0; r < 4; r++) {
+                const int k = 4 * rb + r;
+                for (int c = 0; c < 4; c++) {
+                    const int n = 4 * cb + c;
+                    const int lo = k < n ? k : n;
+                    const int hi = k < n ? n : k;
+                    const uint8_t *src = &bytes[SYMM_COMPACT_INDEX(lo, hi, origM) * QRUOV_L];
+                    const int inside = (hi < origM);
+                    for (int l = 0; l < QRUOV_L; l++) {
+                        dst[l * plane + c * 4 + r] = inside ? src[l] : 0;
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void transpose_mat(uint8_t *B, const uint8_t *A, int ldB, int ldA, int M, int N)
 {
     int i = 0;
