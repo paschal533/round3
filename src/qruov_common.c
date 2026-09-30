@@ -51,11 +51,12 @@ static void sign_build_system(uint8_t eqn_out[QRUOV_m * QRUOV_m],
     uint8_t y_fi2[QRUOV_M * QRUOV_L];
     prg_init(&pk_prg, seed_pk);
     for (int eq = 0; eq < QRUOV_m; eq++) {
-        uint8_t pi1[QRUOV_V * QRUOV_V * QRUOV_L];
+        // P1 stays packed: unpacking it costs V*V*L bytes of stack (222 KB for 5q7L10).
+        uint8_t pi1_upper[QRUOV_tau_n1];
         uint8_t pi2t[QRUOV_M * QRUOV_V * QRUOV_L];
-        prepare_pi1_from_prg(pi1, &pk_prg, (uint16_t)eq);
+        prepare_pi1_coeffs_from_prg(pi1_upper, &pk_prg, (uint16_t)eq);
         prepare_pi2t_from_prg(pi2t, &pk_prg, (uint16_t)eq);
-        fql_mul_VxV_V(pi1_y, pi1, y);
+        fql_mul_symVxV_V(pi1_y, pi1_upper, y);
         fql_dot_V(y_pi1_y, y, pi1_y);
         fql_mul_MxV_V(y_pi1_sd, sdt, pi1_y);
         fql_mul_MxV_V(y_pi2, pi2t, y);

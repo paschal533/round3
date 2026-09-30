@@ -111,6 +111,46 @@ static inline void fql_mul_VxV_V(uint8_t *dst, const uint8_t *A_VxV, const uint8
     }
 }
 
+// dst = A * x for a symmetric VxV matrix A given as its packed upper triangle
+// (row-major, QRUOV_n1 coefficients, the layout prepare_pi1_coeffs_from_prg
+// returns). Every output sums exactly the products fql_mul_VxV_V would on the
+// unpacked matrix, so the result is identical, without the V*V*L-byte matrix.
+static inline void fql_mul_symVxV_V(uint8_t *dst, const uint8_t *A_upper, const uint8_t *x_V)
+{
+    uint32_t acc[QRUOV_V][2 * QRUOV_L - 1];
+    memset(acc, 0, sizeof(acc));
+    const uint8_t *a = A_upper;
+    for (int i = 0; i < QRUOV_V; i++) {
+        const uint8_t *xi = &x_V[i * QRUOV_L];
+        for (int j = i; j < QRUOV_V; j++, a += QRUOV_L) {
+            const uint8_t *xj = &x_V[j * QRUOV_L];
+            for (int s = 0; s < QRUOV_L; s++) {
+                const uint32_t as = a[s];
+                for (int t = 0; t < QRUOV_L; t++) {
+                    acc[i][s + t] += as * xj[t];
+                }
+            }
+            if (j == i) continue;
+            for (int s = 0; s < QRUOV_L; s++) {
+                const uint32_t as = a[s];
+                for (int t = 0; t < QRUOV_L; t++) {
+                    acc[j][s + t] += as * xi[t];
+                }
+            }
+        }
+    }
+    for (int i = 0; i < QRUOV_V; i++) {
+        uint32_t *c = acc[i];
+        for (int t = 2 * QRUOV_L - 2; t >= QRUOV_L; t--) {
+            c[t - QRUOV_L] += (uint32_t)QRUOV_fc0 * c[t];
+            c[t - QRUOV_L + QRUOV_fe] += (uint32_t)QRUOV_fc * c[t];
+        }
+        for (int l = 0; l < QRUOV_L; l++) {
+            dst[i * QRUOV_L + l] = gf_reduce(c[l]);
+        }
+    }
+}
+
 static inline void fql_mul_MxV_V(uint8_t *dst, const uint8_t *A_MxV, const uint8_t *x_V)
 {
     for (int i = 0; i < QRUOV_M; i++) {

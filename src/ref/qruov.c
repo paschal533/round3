@@ -106,7 +106,7 @@ int qruov_verify(const SEED_PK seed_pk, const uint8_t pk_p3[P3_SERIALIZED_LEN], 
         p3_offset += BITS2BYTE(QRUOV_q_LOG * chunk_coeffs);
         for (int chunk_eq = 0; chunk_eq < chunk_eqs; chunk_eq++) {
             int eq = eq_base + chunk_eq;
-            uint8_t pi1[QRUOV_V * QRUOV_V * QRUOV_L];
+            uint8_t pi1_upper[QRUOV_tau_n1]; // packed, see fql_mul_symVxV_V
             uint8_t pi2[QRUOV_tau_n2];
             uint8_t pi3[QRUOV_M * QRUOV_M * QRUOV_L];
             uint8_t pi1_v[QRUOV_V * QRUOV_L];
@@ -116,9 +116,9 @@ int qruov_verify(const SEED_PK seed_pk, const uint8_t pk_p3[P3_SERIALIZED_LEN], 
             uint8_t v_pi2_o[QRUOV_L];
             uint8_t o_pi3_o[QRUOV_L];
             uint8_t lhs[QRUOV_L];
-            prepare_pi1_from_prg(pi1, &pk_prg, (uint16_t)eq);
+            prepare_pi1_coeffs_from_prg(pi1_upper, &pk_prg, (uint16_t)eq);
             prepare_pi2_coeffs_from_prg(pi2, &pk_prg, (uint16_t)eq);
-            fql_mul_VxV_V(pi1_v, pi1, vinegar);
+            fql_mul_symVxV_V(pi1_v, pi1_upper, vinegar);
             fql_dot_V(v_pi1_v, vinegar, pi1_v);
             fql_mul_VxM_M(pi2_o, pi2, oil);
             fql_dot_V(v_pi2_o, vinegar, pi2_o);
