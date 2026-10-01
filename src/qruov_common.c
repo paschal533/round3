@@ -26,13 +26,38 @@ int qruov_common_is_canonical_s(const SIG_S sig_s)
     return 1;
 }
 
+/*
+ * Signing-side canonicalisation. s is published, but it is computed from
+ * secret data, and the branchy version above leaks where the first nonzero
+ * coefficient sits and whether s was negated. qruov_common_is_canonical_s
+ * stays as it is: verify runs it on a public signature.
+ */
+// 0xff if a != 0, else 0x00: the top bit of a | -a is set exactly when a != 0.
+static inline uint8_t ct_nonzero_mask(uint8_t a)
+{
+    uint32_t x = a;
+    return (uint8_t)(0u - ((x | (0u - x)) >> 31));
+}
+
+// 0xff if a > t, else 0x00: t - a wraps past 2^31 exactly when a > t.
+static inline uint8_t ct_gt_mask(uint8_t a, uint8_t t)
+{
+    return (uint8_t)(0u - (((uint32_t)t - (uint32_t)a) >> 31));
+}
+
 void qruov_common_canonicalize_s(SIG_S sig_s)
 {
-    if (qruov_common_is_canonical_s(sig_s)) return;
+    uint8_t seen = 0; // 0xff once a nonzero coefficient has gone by
+    uint8_t neg = 0;  // 0xff if the first nonzero coefficient is > (q-1)/2
     for (int i = 0; i < SIG_S_COEFF_LEN; i++) {
-        if (sig_s[i] != 0) {
-            sig_s[i] = (uint8_t)(QRUOV_q - sig_s[i]);
-        }
+        uint8_t nz = ct_nonzero_mask(sig_s[i]);
+        neg |= nz & (uint8_t)~seen & ct_gt_mask(sig_s[i], (QRUOV_q - 1) / 2);
+        seen |= nz;
+    }
+    for (int i = 0; i < SIG_S_COEFF_LEN; i++) {
+        uint8_t a = sig_s[i];
+        uint8_t flip = neg & ct_nonzero_mask(a);
+        sig_s[i] = (uint8_t)(a ^ ((a ^ (uint8_t)(QRUOV_q - a)) & flip));
     }
 }
 
