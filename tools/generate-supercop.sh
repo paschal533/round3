@@ -141,8 +141,8 @@ generate_api_h()
     leaf_dir=$1
 
     cat > "$leaf_dir/api.h" <<EOF
-#ifndef api_h
-#define api_h
+#ifndef QRUOV_API_H
+#define QRUOV_API_H
 
 #define CRYPTO_SECRETKEYBYTES $CRYPTO_SECRETKEYBYTES
 #define CRYPTO_PUBLICKEYBYTES $CRYPTO_PUBLICKEYBYTES
@@ -162,7 +162,7 @@ crypto_sign_open(unsigned char *m, unsigned long long *mlen,
                  const unsigned char *sm, unsigned long long smlen,
                  const unsigned char *pk);
 
-#endif /* api_h */
+#endif /* QRUOV_API_H */
 EOF
 }
 

@@ -28,7 +28,9 @@ static inline void store_u64_be(uint8_t out[8], uint64_t x)
 
 static inline void secure_zero(void *ptr, size_t len)
 {
-#if defined(__GLIBC__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#if defined(__APPLE__)
+    (void)memset_s(ptr, len, 0, len);
+#elif defined(__GLIBC__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
     explicit_bzero(ptr, len);
 #else
     static void *(*const volatile memset_ptr)(void *, int, size_t) = memset;

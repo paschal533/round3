@@ -3,6 +3,15 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+// QRUOV_PRIM_OQS: build against liboqs instead of OpenSSL, as in pqov's utils_hash.c.
+#if defined(QRUOV_PRIM_OQS)
+#include <oqs/sha3.h>
+#include <oqs/aes.h>
+
+// Defined even without EVP: test.c prints it unconditionally.
+#define PRIM_NO_EVP_DIGEST_SQUEEZE 0
+#else
 #include <openssl/evp.h>
 
 // OpenSSL < 3.3 does not provide EVP_DigestSqueeze().
@@ -13,24 +22,38 @@
 #else
 #define PRIM_NO_EVP_DIGEST_SQUEEZE (!OPENSSL_VERSION_PREREQ(3, 3))
 #endif // PRIM_FORCE_NO_EVP_DIGEST_SQUEEZE
+#endif // QRUOV_PRIM_OQS
 
 typedef struct shake256 {
+#if defined(QRUOV_PRIM_OQS)
+    OQS_SHA3_shake256_inc_ctx st;
+    // liboqs needs an explicit finalize before the first squeeze; this API has
+    // none, so the first squeeze does it.
+    int finalized;
+#else
     EVP_MD_CTX *md_ctx;
 #if PRIM_NO_EVP_DIGEST_SQUEEZE
     size_t offset;
     size_t cache_size;
     uint8_t *cache;
 #endif // PRIM_NO_EVP_DIGEST_SQUEEZE
+#endif // QRUOV_PRIM_OQS
 } shake256;
 
 typedef struct shake128 {
+#if defined(QRUOV_PRIM_OQS)
+    OQS_SHA3_shake128_inc_ctx st;
+#else
     EVP_MD_CTX *md_ctx;
+#endif // QRUOV_PRIM_OQS
 } shake128;
 
 typedef struct aes128 {
 #if defined(PRIM_AES_BACKEND_X86AESNI)
     // AES-128 round keys (11 x 16 bytes), 16-byte aligned for AES-NI loads.
     uint8_t round_keys[11 * 16] __attribute__((aligned(16)));
+#elif defined(QRUOV_PRIM_OQS)
+    void *schedule;
 #else
     EVP_CIPHER_CTX *cipher_ctx;
 #endif // PRIM_AES_BACKEND_X86AESNI
