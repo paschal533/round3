@@ -395,10 +395,14 @@ void fql_compact_sym_aos_to_vnni_cols(uint8_t slab[], int M, int j0, int nb, con
                     const int n = 4 * cb + c;
                     const int lo = k < n ? k : n;
                     const int hi = k < n ? n : k;
+                    if (hi >= origM) {
+                        for (int l = 0; l < QRUOV_L; l++) dst[l * plane + c * 4 + r] = 0;
+                        continue;
+                    }
+                    // only formed in range: past origM it would point outside bytes
                     const uint8_t *src = &bytes[SYMM_COMPACT_INDEX(lo, hi, origM) * QRUOV_L];
-                    const int inside = (hi < origM);
                     for (int l = 0; l < QRUOV_L; l++) {
-                        dst[l * plane + c * 4 + r] = inside ? src[l] : 0;
+                        dst[l * plane + c * 4 + r] = src[l];
                     }
                 }
             }
